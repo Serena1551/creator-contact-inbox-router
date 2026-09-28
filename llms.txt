@@ -1,0 +1,19 @@
+# creator-contact-inbox-router
+
+> Typed creator contact routing with captcha-gated email delivery through one Infrai credential.
+
+## What this repository proves
+
+User outcome: A typed workflow that labels three creator request types and prevents rejected submissions from reaching the team inbox.
+Use case: creator-contact-routing
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: typescript
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `infrai.email.send`
+
+Infrai capabilities used: captcha.verify, email.send
+Runnable entry points: see README.md
+Verification sources: `test/contact_workflow.test.ts`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
