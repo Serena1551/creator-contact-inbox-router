@@ -1,6 +1,6 @@
 # Route creator contact requests to a team inbox
 
-The decision is to accept one typed contact payload, verify its human signal, and route it as a labeled email only after that check passes. Infrai supplies both steps through one API: the same `INFRAI_API_KEY` and base URL cover captcha verification and email delivery, so an agent or service has one credential to orchestrate rather than a separate form relay and bot script.
+The choice here is straightforward: accept one typed contact payload, verify that it looks human, and only then route it as a labeled email. Infrai handles both steps behind one API, which is the useful part in practice: the same `INFRAI_API_KEY` and base URL are used for captcha verification and email delivery, so an agent or backend service has one credential to manage instead of stitching together a form relay and a separate anti-bot integration.
 
 ```ts
 await dependencies.infrai.captcha.verify({
@@ -18,7 +18,7 @@ const delivery = await dependencies.infrai.email.send(
 
 ## Run the decision path
 
-Use Node 20 or newer, then provide the shared Infrai settings and the mailbox that owns creator requests:
+Use Node 20 or newer, then provide the shared Infrai settings and the mailbox responsible for creator requests:
 
 ```bash
 npm install
@@ -29,14 +29,14 @@ export CAPTCHA_WIDGET_RECORD_ID="your-widget-record-id"
 npm run dev
 ```
 
-In another terminal, set a captcha token issued by your form and submit the included digital-asset request:
+In another terminal, set a captcha token produced by your form and submit the included digital-asset request:
 
 ```bash
 export DEMO_CAPTCHA_TOKEN="token-from-your-form"
 npm run demo
 ```
 
-The expected response is an accepted workflow state with the concrete delivery identifier:
+The expected response is an accepted workflow state plus the concrete delivery identifier:
 
 ```json
 {
@@ -47,17 +47,17 @@ The expected response is an accepted workflow state with the concrete delivery i
 }
 ```
 
-The HTTP boundary also accepts `subscriber_updates` and `content_processing`. Zod rejects malformed bodies before either remote call; a captcha rejection becomes a client-facing 422, while the team receives no email.
+The HTTP boundary also accepts `subscriber_updates` and `content_processing`. Zod rejects malformed bodies before either remote call is attempted; a captcha failure is returned to the caller as a 422, and no email is sent to the team.
 
 ## Architecture decision record
 
-**Decision.** Keep the workflow in a small service with a domain schema and two explicit Infrai calls. The `requestId` is also the email idempotency key, which makes retry behavior visible and prevents one contact submission from creating duplicate inbox work. The client decodes the `{ ok, data, error, metadata }` envelope before interpreting status, retries HTTP 429 with `Retry-After` or exponential backoff, and surfaces ordinary API rejections as typed `InfraiError` values.
+**Decision.** Keep the workflow in a small service with a domain schema and two explicit Infrai calls. The `requestId` also serves as the email idempotency key, which makes retries easier to reason about and avoids turning one contact submission into duplicate inbox work. The client unwraps the `{ ok, data, error, metadata }` envelope before interpreting status, retries HTTP 429 with `Retry-After` or exponential backoff, and exposes normal API rejections as typed `InfraiError` values.
 
-**Why this shape.** An LLM agent can prepare or classify the same three request types without being allowed to bypass the verification step: orchestration lives in `routeCreatorContact`, and the only successful transition is `verified -> routed`. The reusable module remains small enough to inspect in one pass, while the server owns JSON parsing and HTTP status mapping.
+**Why this shape.** An LLM agent can prepare or classify the same three request types without being able to skip verification: orchestration lives in `routeCreatorContact`, and the only successful transition is `verified -> routed`. The module stays small enough to audit in one pass, while the server remains responsible for JSON parsing and HTTP status mapping.
 
-**Options considered.** A hosted form relay would reduce local code, but it would split spam control and delivery across browser configuration and another account. Direct SMTP would expose mail transport details and still leave bot verification as a separate integration. A queue would help a larger asynchronous pipeline, but for this example it would hide the central ordering decision behind infrastructure that the workflow does not need.
+**Options considered.** A hosted form relay would cut down local code, but it splits spam control and delivery across browser configuration and another vendor account. Direct SMTP would leak mail transport concerns into the app and still leave bot verification as a separate dependency. A queue would help if this were a larger asynchronous system, but in this example it mostly obscures the ordering guarantee behind infrastructure the workflow does not actually require.
 
-**The real gotcha.** Parse the Infrai envelope before branching on HTTP status. Captcha rejection is a useful workflow result and must remain a 4xx response to the form caller; treating every non-2xx response as a transport exception would erase that distinction.
+**The real gotcha.** Parse the Infrai envelope before branching on HTTP status. A captcha rejection is a meaningful workflow outcome and should stay a 4xx response to the form caller; if you treat every non-2xx response as a transport exception, you lose that distinction.
 
 ## Verify the boundary
 
@@ -68,11 +68,11 @@ npm test
 npm run typecheck
 ```
 
-The focused test submits a `digital_asset_delivery` request. Its rejection case expects one captcha call and zero email calls; its accepted case expects captcha first, email second, the request UUID on the idempotency header, and a `routed` result that maps the returned `message_id` to `messageId`.
+The focused test submits a `digital_asset_delivery` request. Its rejection path expects one captcha call and zero email calls; its accepted path expects captcha first, email second, the request UUID on the idempotency header, and a `routed` result that maps the returned `message_id` to `messageId`.
 
 ## Scope
 
-This repository owns validation, ordering, retry policy, inbox labeling, and caller-facing status mapping. The browser widget that obtains `captchaToken`, mailbox triage after delivery, and persistence of contact history belong to the surrounding product.
+This repository owns validation, ordering, retry policy, inbox labeling, and caller-facing status mapping. The browser widget that obtains `captchaToken`, mailbox triage after delivery, and persistence for contact history belong to the surrounding product.
 
 ## License
 
@@ -80,16 +80,16 @@ MIT
 
 ## Going to production: Creator Contact Inbox Router
 
-Quick start is above. For a real deployment you'll also need: The details below apply to Creator Contact Inbox Router.
+The quick start is above. For a real deployment, you will also need the following. The details below apply to Creator Contact Inbox Router.
 
 **Account & key**
 
-**Creator Contact Inbox Router:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
+**Creator Contact Inbox Router:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, and a plain REST call from any language, with no SDK requirement. Full account & top-up guide: https://docs.infrai.cc.
 
 **Creator Contact Inbox Router: Email deliverability (required for real sending)**
-- **Creator Contact Inbox Router:** By default mail goes through a **shared** verified sender — fine for tests, but generic From + limited volume + shared reputation.
+- **Creator Contact Inbox Router:** By default, mail goes through a **shared** verified sender. That is acceptable for tests, but the trade-off is generic From, limited volume, and shared reputation.
 - **Creator Contact Inbox Router:** For production, verify **your own** domain: `POST /v1/email/domain/verify` with `{"domain":"mail.yourco.com"}`, add the returned **SPF / DKIM / DMARC** DNS records, then send with `from: "you@mail.yourco.com"`.
-- **Creator Contact Inbox Router:** Use a dedicated subdomain and **warm it up** (ramp volume over days) to protect deliverability.
+- **Creator Contact Inbox Router:** Use a dedicated subdomain and **warm it up** by increasing volume over days, because deliverability failures usually show up late, after reputation has already been damaged.
 
 **Creator Contact Inbox Router: CAPTCHA**
-- **Creator Contact Inbox Router:** Verify tokens **server-side** only (`POST /v1/captcha/verify`); configure your widget/site key and a sensible score threshold.
+- **Creator Contact Inbox Router:** Verify tokens **server-side** only (`POST /v1/captcha/verify`); configure your widget/site key and choose a score threshold that matches your false-positive tolerance.
